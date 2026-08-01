@@ -1,0 +1,10 @@
+.env
+
+.venv/
+
+output/
+
+filters/*
+!filters/*.example.txt
+
+__pycache__/
