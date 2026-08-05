@@ -8,7 +8,12 @@ The user then has the option to schedule an LLM task that evaluates those listin
 
 ## Requirements
 
-- Python 3.11+
+- **Python 3.13**
+- Create the environment against 3.13 explicitly if you have multiple versions installed:
+
+```
+py -3.13 -m venv .venv
+```
 - A Gmail account with 2-Step Verification enabled
 
 ## Setup

@@ -1,3 +1,10 @@
+import sys
+if sys.version_info[:2] != (3, 13):
+    raise RuntimeError(
+        f"Python 3.13 required (found {sys.version_info.major}.{sys.version_info.minor}). "
+        "3.14+ advertises zstd compression, which trafilatura cannot decode."
+    )
+
 import os
 from pathlib import Path
 from datetime import date, timedelta

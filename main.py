@@ -1,3 +1,6 @@
+import urllib3.util.request as _u3
+_u3.ACCEPT_ENCODING = "gzip,deflate"
+
 from config import OUTPUT_DIR
 from utils import json_dump
 from retriever import retrieve_email
