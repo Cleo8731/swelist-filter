@@ -6,7 +6,7 @@ from utils import json_dump
 from retriever import retrieve_email
 from parser import parse_email
 from filter import filter
-from scraper import scrape_all
+from scraper import scrape_all, for_digest
 
 if __name__=="__main__":
     email = retrieve_email()
@@ -14,4 +14,4 @@ if __name__=="__main__":
     listings = parse_email(email.html)
     filtered = filter(listings)
     scraped = scrape_all(filtered, detailed=True)
-    json_dump(scraped, OUTPUT_DIR / 'scraped.json')
+    json_dump(for_digest(scraped), OUTPUT_DIR / 'scraped.json')
