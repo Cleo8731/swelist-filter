@@ -8,13 +8,24 @@ The user then has the option to schedule an LLM task that evaluates those listin
 
 ## Requirements
 
-- **Python 3.13**
-- Create the environment against 3.13 explicitly if you have multiple versions installed:
-
-```
-py -3.13 -m venv .venv
-```
+- **Python 3.14** — this is what the server runs. Build the venv against it
+  explicitly if you have several versions installed: a venv hardcodes an absolute
+  path to its base interpreter, so one created against the wrong Python will not
+  run where the scheduled tasks do.
 - A Gmail account with 2-Step Verification enabled
+
+### The zstd trap
+
+Python 3.14 bundles zstd, so urllib3 advertises zstd in its `Accept-Encoding`
+header. trafilatura cannot decode a zstd response: `fetch_url()` returns the
+undecoded body, `extract()` returns `None`, and that surfaces as an
+`AttributeError` on `.splitlines()`.
+
+`config.py` pins `urllib3.util.request.ACCEPT_ENCODING` to `gzip,deflate` to
+prevent this. It lives in `config.py` rather than `main.py` because every entry
+point imports `config`, so `python scraper.py` standalone is covered too.
+**`scraper.py` imports `config` before `trafilatura` deliberately** — the pin
+must be set before trafilatura is imported. Don't reorder those imports.
 
 ## Setup
 
@@ -27,8 +38,11 @@ pip install -r requirements.txt
 Copy `.env.example` to `.env` and fill in:
 
 ```
-GMAIL_USER=you@gmail.com
-APP_PASSWORD=your app password
+IMAP_USER=you@gmail.com
+IMAP_PASSWORD=your app password
+SMTP_USER=you@gmail.com
+SMTP_PASSWORD=your app password
+DIGEST_RECIPIENT=where@to.send
 ```
 
 Generate the app password at [myaccount.google.com/apppasswords](https://myaccount.google.com/apppasswords).

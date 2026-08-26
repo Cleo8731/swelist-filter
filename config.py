@@ -1,15 +1,27 @@
-import sys
-if sys.version_info[:2] != (3, 13):
-    raise RuntimeError(
-        f"Python 3.13 required (found {sys.version_info.major}.{sys.version_info.minor}). "
-        "3.14+ advertises zstd compression, which trafilatura cannot decode."
-    )
-
 import os
+import sys
 from pathlib import Path
 from datetime import date, timedelta
 
 from dotenv import load_dotenv
+
+# Python 3.14 bundles zstd, so urllib3 advertises zstd in its Accept-Encoding
+# header. trafilatura can't decode a zstd response: fetch_url() returns the
+# undecoded body and extract() then returns None, which blows up as an
+# AttributeError on .splitlines(). main.py pins this too, but doing it here
+# covers the standalone entry points (python scraper.py) as well.
+import urllib3.util.request as _urllib3_request
+_urllib3_request.ACCEPT_ENCODING = "gzip,deflate"
+
+# Subjects and scraped text contain emoji, em dashes and middots. Windows'
+# console defaults to cp1252 and print() dies on them with UnicodeEncodeError,
+# which makes any console debugging run fail on its first print. Under
+# pythonw.exe there is no stdout at all, hence the guard.
+if sys.stdout is not None:
+    try:
+        sys.stdout.reconfigure(encoding='utf-8', errors='replace')
+    except (AttributeError, OSError):
+        pass
 
 # Anchor everything to this file's own location, not the working directory.
 # Task Scheduler launches scripts with an unpredictable cwd, so Path.cwd()

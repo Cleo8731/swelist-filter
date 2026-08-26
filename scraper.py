@@ -4,10 +4,13 @@
 from json import load
 from copy import deepcopy
 
-from trafilatura import fetch_url, extract
-
+# config first: it pins urllib3's Accept-Encoding, which has to happen before
+# trafilatura is imported, or fetch_url() comes back zstd-compressed and
+# extract() returns None.
 from config import OUTPUT_DIR
 from utils import json_dump
+
+from trafilatura import fetch_url, extract
 
 def scrape(post):
     downloaded = fetch_url(post['Link'])
@@ -81,6 +84,17 @@ def scrape(post):
     #add_until('Benefits', 'Growth & Insights', )
 
     return result
+# The digest prompt is told never to quote Full Company Description, but it is
+# still ~23% of scraped.json and costs roughly 12k tokens every run to ship a
+# field the model is forbidden to use. detailed_scrape/<n>.json keeps the full
+# text, so strip it from the aggregate the LLM task actually reads.
+# NOTE: that backup only exists when scrape_all runs with detailed=True.
+DIGEST_OMIT = ('Full Company Description',)
+
+
+def for_digest(posts):
+    return [{k: v for k, v in p.items() if k not in DIGEST_OMIT} for p in posts]
+
 
 def record_error(url, path):
     result = extract(fetch_url(url), favor_recall=True).splitlines()
@@ -124,4 +138,4 @@ def scrape_all(filtered_list, detailed=False):
 if __name__=="__main__":
     with open(OUTPUT_DIR / 'filtered_list.json', 'r') as filtered_list:
         scraped = scrape_all(load(filtered_list), detailed=False)
-    json_dump(scraped, OUTPUT_DIR / 'scraped.json')
+    json_dump(for_digest(scraped), OUTPUT_DIR / 'scraped.json')
