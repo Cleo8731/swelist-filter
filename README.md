@@ -4,7 +4,7 @@ Automated triage for the daily internship digest from [SWElist](https://swelist.
 
 The first part of this script the digest email over IMAP, parses out each listing, drops non-matches against a keyword blacklist and whitelist, and scrapes the remaining Simplify postings for requirements, qualifications, location, term, and salary. The result is written as structured JSON. 
 
-The user then has the option to schedule an LLM task that evaluates those listings into an HTML digest saved locally, which the second half of this script can email out.
+The pipeline then evaluates those listings against a fit profile with an LLM and emails the resulting HTML digest — all in a single run.
 
 ## Requirements
 
@@ -14,18 +14,20 @@ The user then has the option to schedule an LLM task that evaluates those listin
   run where the scheduled tasks do.
 - A Gmail account with 2-Step Verification enabled
 
-### The zstd trap
+### How the scraper reads a posting
 
-Python 3.14 bundles zstd, so urllib3 advertises zstd in its `Accept-Encoding`
-header. trafilatura cannot decode a zstd response: `fetch_url()` returns the
-undecoded body, `extract()` returns `None`, and that surfaces as an
-`AttributeError` on `.splitlines()`.
+`scraper.py` fetches each posting page and reads the structured JSON Simplify's
+Next.js page embeds at `__NEXT_DATA__ → props.pageProps.jobPosting`. Every field
+is read by name, so a missing field produces a missing key rather than shifting
+every later value into the wrong one. If that tag is ever absent, the scraper
+falls back to the page's schema.org JSON-LD `JobPosting` (a reduced mapping) and
+records the fallback in `unclassified.json`, so a silent degradation shows up as
+a visible warning.
 
-`config.py` pins `urllib3.util.request.ACCEPT_ENCODING` to `gzip,deflate` to
-prevent this. It lives in `config.py` rather than `main.py` because every entry
-point imports `config`, so `python scraper.py` standalone is covered too.
-**`scraper.py` imports `config` before `trafilatura` deliberately** — the pin
-must be set before trafilatura is imported. Don't reorder those imports.
+This replaced an older scraper that parsed trafilatura's flattened text
+positionally — that approach broke when Simplify changed its page layout on
+2026-09-18. The old zstd workaround is no longer needed for scraping, though
+`config.py` still pins `Accept-Encoding` harmlessly.
 
 ## Setup
 
@@ -43,6 +45,7 @@ IMAP_PASSWORD=your app password
 SMTP_USER=you@gmail.com
 SMTP_PASSWORD=your app password
 DIGEST_RECIPIENT=where@to.send
+OPENCODE_GO_KEY=your opencode go api key
 ```
 
 Generate the app password at [myaccount.google.com/apppasswords](https://myaccount.google.com/apppasswords).
@@ -52,23 +55,26 @@ Copy `filters/blacklist.example.txt` and `filters/whitelist.example.txt` to `bla
 ## Running
 
 ```
-python main.py      # retrieve, filter, scrape
-python sender.py    # email the digest
+python main.py      # retrieve, filter, scrape, digest, send
 ```
 
-Each module also runs standalone against the previous stage's output, which is useful for debugging a single step.
+`main.py` runs the whole pipeline in one process. Every stage still runs
+standalone for debugging — `python digest.py` (or `python digest.py 2026-09-26`
+for a specific day), `python sender.py` to re-send, and so on.
 
 ## Scheduling
 
-Three tasks must run in sequence, with enough separation for each to finish before the next begins.
+One task runs everything:
 
-| Order | Task | Purpose |
-|---|---|---|
-| 1 | `main.py` | Produces `scraped.json` |
-| 2 | LLM scheduled task | Reads the JSON, writes `digest.html` |
-| 3 | `sender.py` | Emails the digest |
+| Task | Purpose |
+|---|---|
+| `main.py` | retrieve -> filter -> scrape -> digest -> send |
 
-On Windows, point Task Scheduler at `.venv\Scripts\pythonw.exe` with the script name as the argument and the project root as **Start in**. Set a timeout under task settings; tasks can otherwise report "Running" indefinitely and block the following day's run.
+On Windows, point Task Scheduler at `.venv\Scripts\pythonw.exe` with `main.py` as
+the argument and the project root as **Start in**. The digest step calls a
+reasoning model, so allow a generous timeout (several minutes) under task
+settings; tasks can otherwise report "Running" indefinitely and block the
+following day's run.
 
 ## Output
 
@@ -78,27 +84,52 @@ Everything for a given day is written to `output/YYYY-MM-DD/`:
 |---|---|---|
 | `scraped.json` | `scraper.py` | Full listing details |
 | `broken.json` | `scraper.py` | Listings whose scrape failed |
-| `digest.html` | LLM task | Finished email body |
+| `unclassified.json` | `scraper.py` | JSON-LD fallbacks + unrecognized enum codes (only written when non-empty) |
+| `digest.html` | `digest.py` | Finished email body |
 
-## LLM task prompt
+## The digest step
 
-The prompt is not included in this repository. It must specify at minimum:
+`digest.py` composes a system message from five documents and sends it with
+today's `scraped.json` (+ `broken.json`), then writes `digest.html`; `sender.py`
+emails it.
 
-- Read `scraped.json` from the current date's folder in `output/`. Fields vary between listings; any key may be absent.
-- Read `broken.json` if present. These listings have a company, position, and link but no requirements, and should be surfaced separately rather than dropped.
-- Write the result to `digest.html` in the same folder, overwriting any existing file.
-- Output only body-level HTML — no `<!DOCTYPE>`, `<html>`, `<head>`, or `<body>` tags. `sender.py` sends the file contents directly as an email body.
-- Use inline `style` attributes only. `<style>` blocks and external stylesheets are stripped by most email clients.
-- Include `<!-- SUBJECT: ... -->` as the first line. `sender.py` reads the subject line from this comment and falls back to a generic dated subject if it is missing.
+| Document | Purpose |
+|---|---|
+| `prompt/task.md` | run mechanics + email structure and HTML |
+| `prompt/criteria.md` | how to judge fit |
+| `profile/resume.txt` | the resume, as plain text |
+| `profile/self_assessment.md` | calibrated skill levels |
+| `profile/preferences.md` | eligibility, ranked locations, roles, timing, comp |
+
+Edit those files, not a single monolith. Copy each `profile/*.example.*` to its
+real name (`resume.txt`, `preferences.md`, `self_assessment.md`) and fill it in.
+
+Platform and model live in `.env` (see the table at the top of `reasoner.py`):
+
+```
+DIGEST_PLATFORM=opencode-go
+DIGEST_MODEL=deepseek-v4.1-flash
+OPENCODE_GO_KEY=...
+DIGEST_MAX_TOKENS=40000
+```
+
+Switching model or platform is a `.env` change only. Reasoning models spend part
+of `DIGEST_MAX_TOKENS` on hidden reasoning; if the answer is truncated
+(`finish_reason=length`) `reasoner.py` doubles the budget and retries. On failure
+`digest.py` writes a visible "digest failed" body plus `digest.error.txt`.
 
 ## Layout
 
 ```
-config.py      credentials, paths, filter lists
+prompt/        task.md + criteria.md (the run's instructions)
+profile/       resume.txt + preferences.md + self_assessment.md
+config.py      credentials, paths, filter lists, digest settings
 retriever.py   IMAP retrieval
 parser.py      listing extraction
 filter.py      keyword filtering
 scraper.py     posting detail scraping
+digest.py      LLM evaluation -> digest.html
+reasoner.py    platform-agnostic model client
 sender.py      SMTP delivery
 utils.py       shared helpers
 ```
