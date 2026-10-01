@@ -42,5 +42,20 @@ def send_digest():
     print("Sent:", msg['Subject'])
 
 
+def send_notice(subject, text):
+    """A short, plain notice (e.g. 'No digest today'), so a failed run is not silent."""
+    safe = (text or "").replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+    html = ('<div style="max-width:640px;font-family:-apple-system,\'Segoe UI\','
+            'Roboto,Helvetica,Arial,sans-serif;font-size:14px;line-height:1.5;'
+            'color:#1f2328;background-color:#ffffff;padding:16px;">'
+            '<div style="font-size:16px;font-weight:700;margin:0 0 6px;">%s</div>'
+            '<div style="color:#5f6b73;">%s</div></div>' % (subject, safe))
+    msg = build_message(html, subject)
+    with smtplib.SMTP_SSL(SMTP_HOST, SMTP_PORT) as server:
+        server.login(SMTP_USER, SMTP_PASSWORD)
+        server.send_message(msg)
+    print("Sent notice:", subject)
+
+
 if __name__ == "__main__":
     send_digest()
