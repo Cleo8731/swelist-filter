@@ -1,0 +1,6 @@
+# Resume
+
+Replace this file with your resume, as plain text (no PDF or LaTeX). The digest
+step reads it verbatim and sends it with the other profile documents.
+
+Suggested sections: Education, Skills, Projects, Experience.

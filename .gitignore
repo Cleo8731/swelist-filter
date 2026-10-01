@@ -1,10 +1,22 @@
+# Secrets
 .env
 
+# Environments / build
 .venv/
+__pycache__/
 
+# Run artefacts
 output/
+logs/
 
+# Private candidate profile: publish only the templates
+profile/*
+!profile/*.example.txt
+!profile/*.example.md
+
+# Private filter lists: publish only the examples
 filters/*
 !filters/*.example.txt
 
-__pycache__/
+# Deprecated
+filters/prompt.legacy.md
